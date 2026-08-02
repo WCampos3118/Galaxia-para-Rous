@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Galaxia de Recuerdos</title>
   <style>
     * {
@@ -10,6 +10,7 @@
       padding: 0;
       box-sizing: border-box;
       -webkit-tap-highlight-color: transparent;
+      touch-action: none; /* Fuerza al navegador a ceder los gestos táctiles al WebGL */
     }
     body, html {
       width: 100%;
@@ -26,6 +27,7 @@
       height: 100%;
       z-index: 1;
       display: block;
+      touch-action: none;
     }
     .overlay-text {
       position: absolute;
@@ -204,7 +206,7 @@
         loadOptimizedTexture(`./Foto${i}.jpg`, photoMesh);
       }
 
-      // CONTROLES (GIRO Y ZOOM)
+      // CONTROLES TÁCTILES Y MOUSE MEJORADOS
       let isDragging = false;
       let previousMousePosition = { x: 0, y: 0 };
       let initialPinchDistance = null;
@@ -215,54 +217,66 @@
         return Math.sqrt(dx * dx + dy * dy);
       };
 
-      const onPointerDown = (e) => {
-        if (e.touches && e.touches.length === 2) {
-          initialPinchDistance = getDistance(e.touches);
+      const handleTouchStart = (e) => {
+        if (e.touches.length === 2) {
           isDragging = false;
-          return;
+          initialPinchDistance = getDistance(e.touches);
+        } else if (e.touches.length === 1) {
+          isDragging = true;
+          previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
         }
-        isDragging = true;
-        previousMousePosition = {
-          x: e.touches ? e.touches[0].clientX : e.clientX,
-          y: e.touches ? e.touches[0].clientY : e.clientY
-        };
       };
 
-      const onPointerMove = (e) => {
-        if (e.touches && e.touches.length === 2 && initialPinchDistance !== null) {
+      const handleTouchMove = (e) => {
+        if (e.touches.length === 2 && initialPinchDistance) {
+          e.preventDefault();
           const currentDistance = getDistance(e.touches);
-          const zoomFactor = initialPinchDistance / currentDistance;
-          camera.position.z = Math.max(2, Math.min(12, camera.position.z * (zoomFactor > 1 ? 1.02 : 0.98)));
+          const diff = initialPinchDistance - currentDistance;
+
+          // Ajuste de zoom directo sobre la cámara
+          camera.position.z += diff * 0.01;
+          camera.position.z = Math.max(1.8, Math.min(12, camera.position.z));
+
           initialPinchDistance = currentDistance;
-          return;
+        } else if (e.touches.length === 1 && isDragging) {
+          const currentX = e.touches[0].clientX;
+          const currentY = e.touches[0].clientY;
+
+          galaxyGroup.rotation.y += (currentX - previousMousePosition.x) * 0.008;
+          galaxyGroup.rotation.x += (currentY - previousMousePosition.y) * 0.005;
+
+          previousMousePosition = { x: currentX, y: currentY };
         }
-
-        if (!isDragging) return;
-        const currentX = e.touches ? e.touches[0].clientX : e.clientX;
-        const currentY = e.touches ? e.touches[0].clientY : e.clientY;
-
-        galaxyGroup.rotation.y += (currentX - previousMousePosition.x) * 0.008;
-        galaxyGroup.rotation.x += (currentY - previousMousePosition.y) * 0.005;
-
-        previousMousePosition = { x: currentX, y: currentY };
       };
 
-      const onPointerUp = () => {
+      const handleTouchEnd = () => {
         isDragging = false;
         initialPinchDistance = null;
       };
 
-      canvas.addEventListener('mousedown', onPointerDown);
-      canvas.addEventListener('mousemove', onPointerMove);
-      window.addEventListener('mouseup', onPointerUp);
-      canvas.addEventListener('touchstart', onPointerDown, { passive: true });
-      canvas.addEventListener('touchmove', onPointerMove, { passive: true });
-      window.addEventListener('touchend', onPointerUp);
+      // Eventos para Celulares (no pasivos para permitir preventDefault)
+      canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+      canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+      canvas.addEventListener('touchend', handleTouchEnd);
 
-      // ZOOM CON RUEDITA DEL MOUSE (PARA PC)
+      // Eventos para Mouse / PC
+      canvas.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        previousMousePosition = { x: e.clientX, y: e.clientY };
+      });
+
+      canvas.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        galaxyGroup.rotation.y += (e.clientX - previousMousePosition.x) * 0.008;
+        galaxyGroup.rotation.x += (e.clientY - previousMousePosition.y) * 0.005;
+        previousMousePosition = { x: e.clientX, y: e.clientY };
+      });
+
+      window.addEventListener('mouseup', () => { isDragging = false; });
+
       window.addEventListener('wheel', (e) => {
         camera.position.z += e.deltaY * 0.005;
-        camera.position.z = Math.max(2, Math.min(12, camera.position.z));
+        camera.position.z = Math.max(1.8, Math.min(12, camera.position.z));
       });
 
       window.addEventListener('resize', () => {
@@ -275,7 +289,7 @@
 
       const clock = new THREE.Clock();
       const animate = () => {
-        if (!isDragging && initialPinchDistance === null) {
+        if (!isDragging && !initialPinchDistance) {
           galaxyGroup.rotation.y = clock.getElapsedTime() * 0.08;
         }
         renderer.render(scene, camera);
