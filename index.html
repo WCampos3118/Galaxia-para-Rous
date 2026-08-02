@@ -161,14 +161,13 @@
       );
       galaxyGroup.add(core);
 
-      // 3. CARGA DIRECTA DE ARCHIVOS CON REDIMENSIONADO AUTOMÁTICO EN MEMORIA
+      // 3. CARGA DE FOTOS
       const photoGeometry = new THREE.PlaneGeometry(0.8, 0.8);
 
       const loadOptimizedTexture = (url, mesh) => {
         const img = new Image();
         img.crossOrigin = 'Anonymous';
         img.onload = () => {
-          // Redimensionamos dinámicamente la imagen para no saturar la memoria gráfica del celular
           const canvasScale = document.createElement('canvas');
           canvasScale.width = 512;
           canvasScale.height = 512;
@@ -184,7 +183,6 @@
       };
 
       for (let i = 1; i <= 12; i++) {
-        // Material inicial transparente
         const photoMaterial = new THREE.MeshBasicMaterial({
           side: THREE.DoubleSide,
           transparent: true,
@@ -203,16 +201,26 @@
         photoMesh.rotation.y = - (branchAngle + spinAngle);
 
         galaxyGroup.add(photoMesh);
-
-        // Cargamos Foto1.jpg, Foto2.jpg, etc.
         loadOptimizedTexture(`./Foto${i}.jpg`, photoMesh);
       }
 
-      // CONTROLES TÁCTILES
+      // CONTROLES (GIRO Y ZOOM)
       let isDragging = false;
       let previousMousePosition = { x: 0, y: 0 };
+      let initialPinchDistance = null;
+
+      const getDistance = (touches) => {
+        const dx = touches[0].clientX - touches[1].clientX;
+        const dy = touches[0].clientY - touches[1].clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+      };
 
       const onPointerDown = (e) => {
+        if (e.touches && e.touches.length === 2) {
+          initialPinchDistance = getDistance(e.touches);
+          isDragging = false;
+          return;
+        }
         isDragging = true;
         previousMousePosition = {
           x: e.touches ? e.touches[0].clientX : e.clientX,
@@ -221,6 +229,14 @@
       };
 
       const onPointerMove = (e) => {
+        if (e.touches && e.touches.length === 2 && initialPinchDistance !== null) {
+          const currentDistance = getDistance(e.touches);
+          const zoomFactor = initialPinchDistance / currentDistance;
+          camera.position.z = Math.max(2, Math.min(12, camera.position.z * (zoomFactor > 1 ? 1.02 : 0.98)));
+          initialPinchDistance = currentDistance;
+          return;
+        }
+
         if (!isDragging) return;
         const currentX = e.touches ? e.touches[0].clientX : e.clientX;
         const currentY = e.touches ? e.touches[0].clientY : e.clientY;
@@ -231,7 +247,10 @@
         previousMousePosition = { x: currentX, y: currentY };
       };
 
-      const onPointerUp = () => { isDragging = false; };
+      const onPointerUp = () => {
+        isDragging = false;
+        initialPinchDistance = null;
+      };
 
       canvas.addEventListener('mousedown', onPointerDown);
       canvas.addEventListener('mousemove', onPointerMove);
@@ -239,6 +258,12 @@
       canvas.addEventListener('touchstart', onPointerDown, { passive: true });
       canvas.addEventListener('touchmove', onPointerMove, { passive: true });
       window.addEventListener('touchend', onPointerUp);
+
+      // ZOOM CON RUEDITA DEL MOUSE (PARA PC)
+      window.addEventListener('wheel', (e) => {
+        camera.position.z += e.deltaY * 0.005;
+        camera.position.z = Math.max(2, Math.min(12, camera.position.z));
+      });
 
       window.addEventListener('resize', () => {
         sizes.width = window.innerWidth;
@@ -250,7 +275,9 @@
 
       const clock = new THREE.Clock();
       const animate = () => {
-        if (!isDragging) galaxyGroup.rotation.y = clock.getElapsedTime() * 0.08;
+        if (!isDragging && initialPinchDistance === null) {
+          galaxyGroup.rotation.y = clock.getElapsedTime() * 0.08;
+        }
         renderer.render(scene, camera);
         requestAnimationFrame(animate);
       };
